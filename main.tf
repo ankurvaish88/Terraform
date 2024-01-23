@@ -19,6 +19,8 @@ variable "public_subnet_cidrs" {
  default     = ["10.0.1.0/24", "10.0.2.0/24"]
 }
 
+## Adding subnet into 2 AZ i.e. ap-south-1a & 1b as per mentioned in variable "azs" block
+
 resource "aws_subnet" "poc_public_subnets" {
     count      = length(var.public_subnet_cidrs)
     vpc_id     = aws_vpc.poc_vpc.id
@@ -30,6 +32,7 @@ resource "aws_subnet" "poc_public_subnets" {
  }
 }
 
+## Creating route table with IGW 
 resource "aws_route_table" "route_poc" {
     vpc_id = aws_vpc.poc_vpc.id
     route {
@@ -39,6 +42,7 @@ resource "aws_route_table" "route_poc" {
   
 }
 
+## Attaching route table with IGW to existing public subnets 
 resource "aws_route_table_association" "public_subnet_rt" {
     count          = length(var.public_subnet_cidrs)
  #   subnet_id      = aws_subnet.poc_public_subnets.id
@@ -47,7 +51,7 @@ resource "aws_route_table_association" "public_subnet_rt" {
   
 }
 
-
+## Creating IGW & attaching it to newly created vpc 
 resource "aws_internet_gateway_attachment" "igw_poc" {
   internet_gateway_id = aws_internet_gateway.igw_poc.id
   vpc_id              = aws_vpc.poc_vpc.id
@@ -92,13 +96,15 @@ egress {
 
 }
 
-
+## Creation of LT which is required for ASG
 resource "aws_launch_template" "webserver_lt" {
   name_prefix   = "webserver_lt"
 #  image_id      = aws_ami_from_instance.webserver-ami.id
   image_id = "ami-03f4878755434977f"
   instance_type = "t2.micro"
   key_name = "aws-test"
+
+## Changing webserver port from 80 to 8080 via user_data.sh
   user_data = filebase64("/Users/ankur.vaish/Desktop/TF/user_data.sh")
   network_interfaces {
     associate_public_ip_address = true
@@ -106,6 +112,7 @@ resource "aws_launch_template" "webserver_lt" {
   }
 }
 
+## Creation of ASG and attaching newly created server to existing TG's
 resource "aws_autoscaling_group" "webserver_asg" {
   desired_capacity   = 1
   max_size           = 1
@@ -114,7 +121,7 @@ resource "aws_autoscaling_group" "webserver_asg" {
   vpc_zone_identifier = aws_subnet.poc_public_subnets[*].id
   target_group_arns = ["${aws_lb_target_group.webserver_tg.arn}"]
 
-
+## Pointing LT to always point to latest version
   launch_template {
     id      = aws_launch_template.webserver_lt.id
     version = "$Latest"
@@ -148,6 +155,7 @@ resource "aws_lb" "webserver_lb" {
   }
 }
 
+## Adding listener rule with alb 
 resource "aws_lb_listener" "webserver_listener" {
   load_balancer_arn = aws_lb.webserver_lb.arn
   port              = 80
@@ -159,6 +167,8 @@ resource "aws_lb_listener" "webserver_listener" {
   }
 }
 
+
+## IAM user creation 
 resource "aws_iam_user" "ec2-restart" {
   name = "ec2-restart"
 }
@@ -179,6 +189,7 @@ data "aws_iam_policy_document" "developer" {
   }
 }
 
+## Creating policy for ec2 start/stop actions
 resource "aws_iam_user_policy" "developer" {
   name   = "developer-test"
   user   = aws_iam_user.ec2-restart.name
